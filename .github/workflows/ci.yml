@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Signals and process groups are exactly what differs between a laptop and a runner,
+      # so the interrupt tests need to run where they can surprise us.
+      - run: ./test/ralph_test.sh
+      # Pinned: findings are not stable across versions. 0.9.0, which is what ubuntu-latest
+      # ships, reports 20 SC2317 "unreachable command" hits on the trap bodies that 0.11.0
+      # does not, having replaced them with one SC2329 per function.
+      - name: shellcheck 0.11.0
+        run: |
+          ver=0.11.0
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v$ver/shellcheck-v$ver.linux.x86_64.tar.xz" | tar -xJ
+          "shellcheck-v$ver/shellcheck" -S style ralph test/ralph_test.sh
