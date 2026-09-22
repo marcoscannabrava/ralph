@@ -93,6 +93,13 @@ check "enforces per-iteration timeout" "timed out after 1s"         "$out"
 out="$(RALPH_PROMPT=nope.md run env)"
 check "preflight catches missing prompt" "prompt file not found"    "$out"
 
+# With no PROMPT.md, the loop falls back to PLAN.md.
+mv PROMPT.md PLAN.md
+seen_plan="$work/seen-plan"
+run env STUB_PROMPT_OUT="$seen_plan" >/dev/null
+check "falls back to PLAN.md"        "do one unit of work"          "$(cat "$seen_plan")"
+mv PLAN.md PROMPT.md
+
 out="$(run env RALPH_ARGS='--add-dir /tmp --effort low' STUB_ECHO_ARGV=1)"
 check "threads RALPH_ARGS through"   "--add-dir /tmp --effort low"   "$out"
 

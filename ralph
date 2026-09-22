@@ -17,21 +17,21 @@ fi
 
 usage() {
   cat <<'EOF'
-ralph — the grug ralph loop: feed PROMPT.md to `claude` over and over until the work is done.
+ralph — the grug ralph loop: feed PROMPT.md (or PLAN.md) to `claude` over and over until done.
 
 usage:  ralph [max_iterations]     # omitted or 0 = run until stopped
         ralph --help
 
 Runs in the current git repository. Each iteration is a fresh `claude` session fed the
-built-in loop contract followed by your PROMPT.md, so it starts with no memory: all
+built-in loop contract followed by your prompt file, so it starts with no memory: all
 continuity lives in the repo — your plan file, your progress log, git history, issues.
-PROMPT.md only has to say what the project is; the contract says how to resume it.
+Your prompt only says what the project is; the contract says how to resume it.
 
 stop:   Ctrl+C stops the session in flight (again to force), or `touch RALPH_STOP` — which
         is what the agent does when it runs out of work. RALPH_STOP is never removed for you.
 
 env knobs (all optional):
-  RALPH_PROMPT=PROMPT.md    prompt fed to every iteration
+  RALPH_PROMPT=<file>       prompt fed to every iteration (default: PROMPT.md, else PLAN.md)
   RALPH_MODEL=              --model for claude (empty = account default)
   RALPH_PERMISSION_MODE=    --permission-mode (empty = CLI default; the effective mode is
                             printed at the start of each session). For genuinely unattended
@@ -64,7 +64,14 @@ fi
 cd -- "$root" || exit 1
 
 max="${1:-0}"
-prompt="${RALPH_PROMPT:-PROMPT.md}"
+prompt="${RALPH_PROMPT:-}"
+if [[ -z "$prompt" ]]; then
+  # Default to PROMPT.md, then PLAN.md.
+  for candidate in PROMPT.md PLAN.md; do
+    [[ -f "$candidate" ]] && { prompt="$candidate"; break; }
+  done
+  prompt="${prompt:-PROMPT.md}"
+fi
 model="${RALPH_MODEL:-}"
 perm="${RALPH_PERMISSION_MODE:-}"
 timeout_s="${RALPH_TIMEOUT:-3600}"
@@ -241,7 +248,7 @@ prompt_stream() {
 
 # ── preflight ────────────────────────────────────────────────────────────────────────────
 command -v claude >/dev/null 2>&1 || die "\`claude\` not found on PATH"
-[[ -f "$prompt" ]] || die "prompt file not found: $root/$prompt"
+[[ -f "$prompt" ]] || die "prompt file not found: $root/$prompt (or PLAN.md)"
 
 have_jq=1
 if ! command -v jq >/dev/null 2>&1; then

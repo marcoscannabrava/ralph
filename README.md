@@ -2,7 +2,7 @@
 
 The grug [ralph loop](https://ghuntley.com/ralph/), in one bash file that just works.
 
-Feed `PROMPT.md` to `claude` over and over until the work is done. Every iteration is a fresh
+Feed `PROMPT.md` (or `PLAN.md`) to `claude` over and over until the work is done. Every iteration is a fresh
 session with no memory, so all continuity lives in the repo — your plan file, your progress log,
 git history, issues. That constraint is the point: the agent has to write down what it did, or
 the next iteration will not know.
@@ -21,7 +21,7 @@ One file. Needs `bash >= 4.4`, `git`, [`claude`](https://claude.com/claude-code)
 
 ```sh
 cd your-repo
-echo "..." > PROMPT.md      # what the project is — see below
+echo "..." > PROMPT.md      # what the project is — see below (PLAN.md also works)
 ralph                       # loop until stopped
 ralph 5                     # at most 5 iterations
 ```
@@ -38,7 +38,8 @@ session events per iteration, with `logs/latest` pointing at the newest run. Add
 
 ## The prompt
 
-Every iteration is fed two things: the built-in loop contract, then your `PROMPT.md`.
+Every iteration is fed two things: the built-in loop contract, then your prompt file —
+`PROMPT.md`, or `PLAN.md` if there is no `PROMPT.md`.
 
 The contract ([`PROMPT.template.md`](PROMPT.template.md), embedded in `ralph`) is the part that
 makes the loop work. It tells the fresh session that it is mid-project, not mid-request: orient on
@@ -66,7 +67,7 @@ All optional, all environment variables.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `RALPH_PROMPT` | `PROMPT.md` | prompt fed to every iteration |
+| `RALPH_PROMPT` | `PROMPT.md`, else `PLAN.md` | prompt fed to every iteration |
 | `RALPH_MODEL` | account default | `--model` for claude |
 | `RALPH_PERMISSION_MODE` | CLI default | `--permission-mode`; use `bypassPermissions` for unattended runs |
 | `RALPH_TIMEOUT` | `3600` | per-iteration wall clock, seconds (`0` = no limit) |
