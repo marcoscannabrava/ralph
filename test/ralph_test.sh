@@ -31,7 +31,7 @@ git -C "$repo" init -q && git -C "$repo" -c user.email=t@t -c user.name=t commit
 # Stub claude: replays the fixture a line at a time, honouring STUB_EXIT / STUB_SLEEP.
 cat >"$bin/claude" <<'STUB'
 #!/usr/bin/env bash
-cat >/dev/null                      # drain the prompt on stdin, as `claude -p` does
+cat >"${STUB_PROMPT_OUT:-/dev/null}"   # drain the prompt on stdin, as `claude -p` does
 [[ -n "${STUB_IGNORE_INT:-}" ]] && trap '' INT   # an agent that does not die of its own accord
 echo "$$" >>"${STUB_PIDS:-/dev/null}"
 echo "⚠ a warning on stderr" >&2
@@ -95,6 +95,18 @@ check "preflight catches missing prompt" "prompt file not found"    "$out"
 
 out="$(run env RALPH_ARGS='--add-dir /tmp --effort low' STUB_ECHO_ARGV=1)"
 check "threads RALPH_ARGS through"   "--add-dir /tmp --effort low"   "$out"
+
+# The loop contract is what makes a fresh session resume instead of conclude, so every
+# iteration must carry it — and the copy inside ralph must match PROMPT.template.md.
+seen="$work/seen-prompt"
+run env STUB_PROMPT_OUT="$seen" >/dev/null
+check "prepends the loop contract"   "Never report \"nothing to do\"" "$(cat "$seen")"
+check "keeps the user prompt"        "do one unit of work"            "$(cat "$seen")"
+check "contract comes first"         "# Ralph Loop"                   "$(head -n 1 "$seen")"
+
+RALPH_TEMPLATE=0 run env STUB_PROMPT_OUT="$seen" >/dev/null
+refute "RALPH_TEMPLATE=0 drops it"   "# Ralph Loop"                   "$(cat "$seen")"
+check "RALPH_TEMPLATE=0 keeps prompt" "do one unit of work"           "$(cat "$seen")"
 
 out="$(ralph --help 2>&1)"
 check "--help prints usage"          "max_iterations"               "$out"

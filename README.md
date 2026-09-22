@@ -21,7 +21,7 @@ One file. Needs `bash >= 4.4`, `git`, [`claude`](https://claude.com/claude-code)
 
 ```sh
 cd your-repo
-echo "..." > PROMPT.md      # what to do each iteration — see below
+echo "..." > PROMPT.md      # what the project is — see below
 ralph                       # loop until stopped
 ralph 5                     # at most 5 iterations
 ```
@@ -38,18 +38,27 @@ session events per iteration, with `logs/latest` pointing at the newest run. Add
 
 ## The prompt
 
-`PROMPT.md` is the whole configuration. A workable skeleton — copy
-[`PROMPT.example.md`](PROMPT.example.md) and edit:
+Every iteration is fed two things: the built-in loop contract, then your `PROMPT.md`.
 
-1. **Orient** — read the plan, the last progress entry, recent commits.
-2. **Health check** — lint, typecheck, test. Red `main` is the only task.
-3. **Pick ONE task** — smallest change that is fully verifiable this iteration.
-4. **Do it, prove it** — tests green, evidence for user-facing behavior.
-5. **Commit and push.**
-6. **Hand off** — update the plan, append one line to the progress log, then exit.
+The contract ([`PROMPT.template.md`](PROMPT.template.md), embedded in `ralph`) is the part that
+makes the loop work. It tells the fresh session that it is mid-project, not mid-request: orient on
+the diff and the progress log first, finish what the last run left cut off, pick one verifiable
+task, prove it, commit, hand off. Without it an agent handed a bare `PROMPT.md` reads it as a
+one-shot request, sees the repo already has an answer to it, and reports nothing to do — which is
+how a run that hit its turn limit turns into a loop that does nothing.
 
-The two rules that matter: never leave `main` broken, and write down anything you noticed but did
-not do. Everything else is taste.
+So `PROMPT.md` only has to say what the project is. Goal, constraints, what done looks like, and
+anything specific to your stack:
+
+```md
+Build a CLI that renders Markdown tables to aligned plain text.
+
+- Rust, no dependencies outside std.
+- `cargo fmt`, `cargo clippy -- -D warnings` and `cargo test` must pass.
+- Done: reads stdin, handles alignment markers, `--width`, and ships a README.
+```
+
+`RALPH_TEMPLATE=0` turns the contract off when you want the prompt sent verbatim.
 
 ## Knobs
 
@@ -65,6 +74,7 @@ All optional, all environment variables.
 | `RALPH_MAX_FAILURES` | `3` | consecutive failures before giving up |
 | `RALPH_MAX_COST_USD` | `0` | stop once cumulative cost exceeds this (`0` = no cap) |
 | `RALPH_PULL` | `1` | `git pull --rebase --autostash` between iterations |
+| `RALPH_TEMPLATE` | `1` | prepend the built-in loop contract (`0` = your prompt verbatim) |
 | `RALPH_ARGS` | — | extra arguments appended to the `claude` invocation |
 
 ```sh

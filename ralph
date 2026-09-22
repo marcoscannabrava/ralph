@@ -23,8 +23,9 @@ usage:  ralph [max_iterations]     # omitted or 0 = run until stopped
         ralph --help
 
 Runs in the current git repository. Each iteration is a fresh `claude` session fed the
-prompt on stdin, so it starts with no memory: all continuity lives in the repo — your plan
-file, your progress log, git history, issues.
+built-in loop contract followed by your PROMPT.md, so it starts with no memory: all
+continuity lives in the repo — your plan file, your progress log, git history, issues.
+PROMPT.md only has to say what the project is; the contract says how to resume it.
 
 stop:   Ctrl+C stops the session in flight (again to force), or `touch RALPH_STOP` — which
         is what the agent does when it runs out of work. RALPH_STOP is never removed for you.
@@ -41,6 +42,7 @@ env knobs (all optional):
   RALPH_MAX_FAILURES=3      consecutive failed iterations before giving up
   RALPH_MAX_COST_USD=0      stop once cumulative session cost exceeds this (0 = no cap)
   RALPH_PULL=1              git pull --rebase --autostash between iterations
+  RALPH_TEMPLATE=1          prepend the built-in loop contract to your prompt (0 = prompt only)
   RALPH_ARGS=               extra arguments appended to the claude invocation
 
 logs:   logs/<utc-timestamp>/ at the repo root — run.log plus one iter-NNN.jsonl per
@@ -70,6 +72,7 @@ sleep_s="${RALPH_SLEEP:-5}"
 max_failures="${RALPH_MAX_FAILURES:-3}"
 max_cost="${RALPH_MAX_COST_USD:-0}"
 pull_enabled="${RALPH_PULL:-1}"
+use_template="${RALPH_TEMPLATE:-1}"
 
 if [[ -t 1 ]]; then
   C_0=$'\033[0m'; C_D=$'\033[2m'; C_R=$'\033[31m'; C_G=$'\033[32m'; C_Y=$'\033[33m'; C_B=$'\033[1m'
@@ -173,6 +176,68 @@ def render:
   end
 | select(. != "")
 '
+
+# ── the prompt ───────────────────────────────────────────────────────────────────────────
+# Every iteration is fed the loop contract followed by your PROMPT.md.
+prompt_template=$(cat <<'RALPH_PROMPT_TEMPLATE'
+# Ralph Loop
+
+`ralph` re-invokes you with this prompt over and over. You have **no memory** of the last run.
+All continuity lives in the repo: `PLAN.md`, `PROGRESS.jsonl`, git history, issues, the diff.
+
+**Each run: do one coherent unit of work, prove it, commit it, hand off, exit.** The loop restarts you.
+
+The project below is almost certainly not finished. A session that ended is not a project that
+ended — the last run may have stopped at its turn limit, timed out, or been interrupted mid-edit.
+Assume there is work. Find it.
+
+## Every cycle
+
+1. **Orient.** `git status` and `git diff @` — uncommitted changes mean the last run was cut off
+   mid-task, and finishing it is your task. Then `PLAN.md`, `tail -n 1 PROGRESS.jsonl` (its `next`
+   is your default task), `git log --oneline -10`, and the project statement below.
+2. **Health check.** Lint, typecheck, tests. If `main` is red, fixing it is the only task.
+3. **Pick ONE task.** First match wins: unfinished work from the last run → broken `main` →
+   security or data loss → bug in the core path → next unbuilt slice in `PLAN.md` → high-value
+   improvement → tech debt → backlog item. If none of those exist yet, the task is to write
+   `PLAN.md` from the project statement below and build the first slice.
+   Tie-break: smallest change you can fully verify this run.
+4. **Do it.** Read the files before you change them. Test first when the behavior is specifiable.
+   Do not load files unrelated to the task.
+5. **Verify for real.** Lint, typecheck and tests green. Exercise user-facing changes end to end
+   and keep the evidence in `evidence/`.
+6. **Commit** one focused increment, push, open a PR. Merge only if CI is green and risk is low.
+7. **Hand off.** Update `PLAN.md`. Append one JSON line to `PROGRESS.jsonl`:
+   `{iter, date, task, done[], verification, next, blocker?}`. Document as the project grows.
+   File anything you noticed but did not do. Exit.
+
+## Rules
+
+- **Never report "nothing to do".** That answer is almost always a failure to orient. Re-read the
+  project statement and compare it against what the repo actually does. Some work remains until
+  every stated goal is built, proven and documented.
+- **Idempotency is survival** — check before you create. A re-run must never corrupt state.
+- **Never leave `main` broken.** Never commit secrets. No destructive or irreversible moves
+  (delete data, force-push `main`, rotate production credentials) without operator sign-off.
+- **If blocked, write it down** (issue plus `blocker` in your `PROGRESS.jsonl` line) and exit.
+  Never spin.
+- **Escape hatch:** `touch RALPH_STOP` with the reason inside, and only when every goal in the
+  project statement is met, or a human must unblock you. Record why in `PROGRESS.jsonl` first.
+  This ends the whole run, so use it sparingly.
+- Fix the docs when they disagree with the code; the code wins. Keep `PLAN.md` and
+  `PROGRESS.jsonl` lean.
+
+---
+
+# The project
+RALPH_PROMPT_TEMPLATE
+)
+
+# Contract first, project second — one document, read top to bottom.
+prompt_stream() {
+  (( use_template )) && printf '%s\n\n' "$prompt_template"
+  cat -- "$prompt"
+}
 
 # ── preflight ────────────────────────────────────────────────────────────────────────────
 command -v claude >/dev/null 2>&1 || die "\`claude\` not found on PATH"
@@ -288,12 +353,12 @@ over_budget() { awk -v t="$1" -v m="$2" 'BEGIN { exit !(m > 0 && t >= m) }'; }
 run_iteration() { # <raw-log>
   local raw="$1" status
   if (( have_jq )); then
-    { "${claude_cmd[@]}" <"$prompt" 2>&1 \
+    { prompt_stream | "${claude_cmd[@]}" 2>&1 \
         | tee "$raw" \
         | jq -R --unbuffered -r --argjson color "$jq_color" "$render_jq"
-      exit "${PIPESTATUS[0]}"; } &
+      exit "${PIPESTATUS[1]}"; } &
   else
-    { "${claude_cmd[@]}" <"$prompt" 2>&1 | tee "$raw"; exit "${PIPESTATUS[0]}"; } &
+    { prompt_stream | "${claude_cmd[@]}" 2>&1 | tee "$raw"; exit "${PIPESTATUS[1]}"; } &
   fi
   job_pid=$!
   wait "$job_pid"; status=$?
